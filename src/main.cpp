@@ -133,7 +133,8 @@ const uint8_t font_bits[][5] = {
     {0x10, 0x38, 0x7C, 0x10, 0x10}, // [17] Săgeată SUS (^)
     {0x10, 0x10, 0x7C, 0x38, 0x10}, // [18] Săgeată JOS (v)
     {0x10, 0x30, 0x7F, 0x30, 0x10}, // [19] Săgeată STÂNGA (<-)
-    {0x10, 0x0C, 0x7E, 0x0C, 0x10}  // [20] Săgeată DREAPTA (->)
+    {0x10, 0x0C, 0x7E, 0x0C, 0x10},  // [20] Săgeată DREAPTA (->)
+    {0x24, 0x2A, 0x2A, 0x2A, 0x12}  // [21] Litera S
 };
 
 void oled_char(uint8_t font_idx) {
@@ -168,10 +169,11 @@ void draw_ui_static(void) {
     oled_set_cursor(2, 0); oled_char(2); oled_char(1); oled_char(15); oled_char(1); oled_char(16); // BAZA:
     oled_set_cursor(4, 0); oled_char(13); oled_char(7); oled_char(1); oled_char(11); oled_char(16); // UMAR:
     oled_set_cursor(6, 0); oled_char(3); oled_char(9); oled_char(12); oled_char(16); // COT:
+    oled_set_cursor(6, 70); oled_char(3); oled_char(6); oled_char(21); oled_char(16); // C, L, S, :
 }
 
 // Actualizeaza elementele in miscare (Status + Sageti)
-void update_ui_dynamic(uint8_t mode, uint16_t j_baza, uint16_t j_umar, uint16_t j_cot) {
+void update_ui_dynamic(uint8_t mode, uint16_t j_baza, uint16_t j_umar, uint16_t j_cot, uint16_t j_cleste) {
     if (!oled_conectat) return;
     // 1. Actualizare text Mod Functionare
     oled_set_cursor(0, 36);
@@ -198,6 +200,12 @@ void update_ui_dynamic(uint8_t mode, uint16_t j_baza, uint16_t j_umar, uint16_t 
     if (j_cot > 600)      oled_char(19); // v
     else if (j_cot < 400) oled_char(20); // ^
     else                   oled_char(0);
+
+    // 5. Dinamica Sageata Cleste (Axa X de la joystick-ul al doilea)
+    oled_set_cursor(6, 100);
+    if (j_cleste > 600)      { oled_char(18); oled_char(0); } // -> (Dreapta)
+    else if (j_cleste < 400) { oled_char(17); oled_char(0); } // <- (Stânga)
+    else                     { oled_char(0); oled_char(0);  }
 }
 
 
@@ -379,16 +387,7 @@ int main(void) {
 
                 // SALVARE CADRU (RECORD)
                 if (current_rec_state == 0 && last_rec_state == 1) { // daca s-a apasat butonul REC (joystick stâng)
-                    if (saved_frame_count < MAX_FRAMES) {
-                        PORTD |= (1 << LED_PIN); // aprind led-ul rosu scurt
-                        
-                        eeprom_write_block((const void*)current_pos, (void*)ee_frames[saved_frame_count], 4);
-                        saved_frame_count++;
-                        eeprom_write_byte(&ee_frame_count, saved_frame_count);
-                        
-                        _delay_ms(200);           // tin ledul aprins pentru 200ms ca sa se vada clar ca s-a salvat un cadru
-                        PORTD &= ~(1 << LED_PIN); // sting ledul dupa salvare
-                    } else {
+                    if (saved_frame_count >= MAX_FRAMES) {
                         // memorie plina - Blit rapid de 3 ori (Avertizare)
                         for (uint8_t k = 0; k < 3; k++) {
                             PORTD |= (1 << LED_PIN);
@@ -396,7 +395,20 @@ int main(void) {
                             PORTD &= ~(1 << LED_PIN);
                             _delay_ms(50);
                         }
+
+                        // o iau de la capat: reset contorul la 0 pentru suprascriere
+                        saved_frame_count = 0;
                     }
+
+                    // 2. Salvez cadrul (fie ca e la indexul normal, fie ca tocmai a fost resetat la 0)
+                    PORTD |= (1 << LED_PIN); // aprind led-ul rosu scurt
+                        
+                    eeprom_write_block((const void*)current_pos, (void*)ee_frames[saved_frame_count], 4);
+                    saved_frame_count++;
+                    eeprom_write_byte(&ee_frame_count, saved_frame_count);
+                    
+                    _delay_ms(200);           // tin ledul aprins pentru 200ms ca sa se vada clar ca s-a salvat un cadru
+                    PORTD &= ~(1 << LED_PIN); // sting ledul dupa salvare
                 }
             }
 
@@ -406,7 +418,7 @@ int main(void) {
                 uint8_t reached_target = 1;
 
                 // In modul PLAY, resetez indicatorii ca fiind centrali
-                j_baza = 512; j_umar = 512; j_cot = 512;
+                j_baza = 512; j_umar = 512; j_cot = 512; j_cleste = 512;
 
                 // Determin directiile dinamice pe baza diferentei dintre pozitia curenta si cea tinta
                 // Setez valori "false" in variabilele j_x pentru a activa sagetile pe ecran
@@ -418,6 +430,9 @@ int main(void) {
                 
                 if (current_pos[2] < target_pos[2]) j_cot = 300; // Se misca sus
                 else if (current_pos[2] > target_pos[2]) j_cot = 700; // Se misca jos
+
+                if (current_pos[3] < target_pos[3]) j_cleste = 700; // Se deschide
+                else if (current_pos[3] > target_pos[3]) j_cleste = 300; // Se inchide
 
                 // Interpolare software: miscare lenta, cu cate un pas, spre valorile din target_pos
                 for (uint8_t i = 0; i < 4; i++) {
@@ -444,7 +459,7 @@ int main(void) {
             }
 
             // Update ecranul OLED o data la 20ms cu datele noi
-            update_ui_dynamic(mode, j_baza, j_umar, j_cot);
+            update_ui_dynamic(mode, j_baza, j_umar, j_cot, j_cleste);
 
             last_rec_state = current_rec_state;
             last_play_state = current_play_state;
