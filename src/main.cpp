@@ -380,7 +380,7 @@ int main(void) {
                 // SALVARE CADRU (RECORD)
                 if (current_rec_state == 0 && last_rec_state == 1) { // daca s-a apasat butonul REC (joystick stâng)
                     if (saved_frame_count < MAX_FRAMES) {
-                        PORTD |= (1 << LED_PIN); //aprind led-ul rosu scurt
+                        PORTD |= (1 << LED_PIN); // aprind led-ul rosu scurt
                         
                         eeprom_write_block((const void*)current_pos, (void*)ee_frames[saved_frame_count], 4);
                         saved_frame_count++;
@@ -388,6 +388,14 @@ int main(void) {
                         
                         _delay_ms(200);           // tin ledul aprins pentru 200ms ca sa se vada clar ca s-a salvat un cadru
                         PORTD &= ~(1 << LED_PIN); // sting ledul dupa salvare
+                    } else {
+                        // memorie plina - Blit rapid de 3 ori (Avertizare)
+                        for (uint8_t k = 0; k < 3; k++) {
+                            PORTD |= (1 << LED_PIN);
+                            _delay_ms(50);
+                            PORTD &= ~(1 << LED_PIN);
+                            _delay_ms(50);
+                        }
                     }
                 }
             }
